@@ -3,17 +3,26 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 )
 
+func publishTogglePause(channelA *amqp.Channel, pausing bool) {
+	state := routing.PlayingState{
+		IsPaused: pausing,
+	}
+
+	pubsub.PublishJSON(channelA, routing.ExchangePerilDirect, routing.PauseKey,
+		state)
+}
+
 func main() {
 	fmt.Println("Starting Peril server...")
+	gamelogic.PrintServerHelp()
 
 	connectionString := "amqp://guest:guest@localhost:5672/"
 	ampqClient, err := amqp.Dial(connectionString)
@@ -28,17 +37,24 @@ func main() {
 		log.Fatal("Unable to open channel.")
 	}
 
-	state := routing.PlayingState{
-		IsPaused: true,
+	for closingServer := false; ; {
+		input := gamelogic.GetInput()
+		switch input[0] {
+		case "pause":
+			fmt.Printf("Pausing...\n")
+			publishTogglePause(channelA, true)
+		case "resume":
+			fmt.Printf("Resuming...\n")
+			publishTogglePause(channelA, false)
+		case "quit":
+			fmt.Printf("Shutting Down...\n")
+			closingServer = true
+		default:
+			fmt.Printf("Command not recognized.\n")
+		}
+		if closingServer {
+			break
+		}
 	}
-
-	pubsub.PublishJSON(channelA, routing.ExchangePerilDirect, routing.PauseKey,
-		state)
-	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
-
-	fmt.Println("Shutting Down...")
 
 }
