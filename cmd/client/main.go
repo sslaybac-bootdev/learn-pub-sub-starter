@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -31,8 +29,29 @@ func main() {
 	queueName := fmt.Sprintf("%s.%s", routing.PauseKey, playerName)
 	pubsub.DeclareAndBind(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false)
 
-	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
+	gameState := gamelogic.NewGameState(playerName)
+	for closingClient := false; ; {
+		input := gamelogic.GetInput()
+		switch input[0] {
+		case "spawn":
+			gameState.CommandSpawn(input)
+		case "move":
+			gameState.CommandMove(input)
+		case "status":
+			gameState.CommandStatus()
+		case "help":
+			gamelogic.PrintClientHelp()
+		case "spam":
+			fmt.Printf("Spamming not allowed yet!")
+		case "quit":
+			fmt.Printf("Shutting Down...\n")
+			closingClient = true
+		default:
+			fmt.Printf("Command not recognized.\n")
+		}
+
+		if closingClient {
+			break
+		}
+	}
 }
