@@ -7,6 +7,9 @@ import (
 	"os/signal"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 )
 
 func main() {
@@ -20,6 +23,17 @@ func main() {
 	defer ampqClient.Close()
 	fmt.Println("RabbitMQ connection successful")
 
+	channelA, err := ampqClient.Channel()
+	if err != nil {
+		log.Fatal("Unable to open channel.")
+	}
+
+	state := routing.PlayingState{
+		IsPaused: true,
+	}
+
+	pubsub.PublishJSON(channelA, routing.ExchangePerilDirect, routing.PauseKey,
+		state)
 	// wait for ctrl+c
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
