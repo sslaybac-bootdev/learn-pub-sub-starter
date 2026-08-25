@@ -37,6 +37,12 @@ func main() {
 		log.Fatal("Unable to open channel.")
 	}
 
+	_, _, err = pubsub.DeclareAndBind(ampqClient,
+		"peril_topic", "game_logs", "game_logs.*", true)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	for closingServer := false; ; {
 		input := gamelogic.GetInput()
 		switch input[0] {

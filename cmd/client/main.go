@@ -11,6 +11,13 @@ import (
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 )
 
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	return func(ps routing.PlayingState) {
+		defer fmt.Printf("> ")
+		gs.HandlePause(ps)
+	}
+}
+
 func main() {
 	fmt.Println("Starting Peril client...")
 	connectionString := "amqp://guest:guest@localhost:5672/"
@@ -28,8 +35,9 @@ func main() {
 
 	queueName := fmt.Sprintf("%s.%s", routing.PauseKey, playerName)
 	pubsub.DeclareAndBind(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false)
-
 	gameState := gamelogic.NewGameState(playerName)
+	pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false, handlerPause(gameState))
+
 	for closingClient := false; ; {
 		input := gamelogic.GetInput()
 		switch input[0] {

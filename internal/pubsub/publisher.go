@@ -38,7 +38,8 @@ func DeclareAndBind(
 		return nil, amqp.Queue{}, err
 	}
 
-	queueA, err := channelA.QueueDeclare(queueName, durable, !durable, !durable, false, nil)
+	queueA, err := channelA.QueueDeclare(queueName, durable, !durable, !durable,
+		false, nil)
 	if err != nil {
 		return nil, amqp.Queue{}, err
 	}
