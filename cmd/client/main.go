@@ -18,6 +18,13 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
 	}
 }
 
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
+	return func(mv gamelogic.ArmyMove) {
+		defer fmt.Printf("> ")
+		gs.HandleMove(mv)
+	}
+}
+
 func main() {
 	fmt.Println("Starting Peril client...")
 	connectionString := "amqp://guest:guest@localhost:5672/"
@@ -36,7 +43,21 @@ func main() {
 	queueName := fmt.Sprintf("%s.%s", routing.PauseKey, playerName)
 	pubsub.DeclareAndBind(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false)
 	gameState := gamelogic.NewGameState(playerName)
-	pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false, handlerPause(gameState))
+	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilDirect, queueName, routing.PauseKey, false, handlerPause(gameState))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	move_queue := fmt.Sprintf("army_moves.%s", playerName)
+	move_pub_chan, err := ampqClient.Channel()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, move_queue, fmt.Sprintf("%s.*", routing.ArmyMovesPrefix), false, handlerMove(gameState))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for closingClient := false; ; {
 		input := gamelogic.GetInput()
@@ -44,7 +65,13 @@ func main() {
 		case "spawn":
 			gameState.CommandSpawn(input)
 		case "move":
-			gameState.CommandMove(input)
+			mv, err := gameState.CommandMove(input)
+			if err == nil {
+				pubsub.PublishJSON(move_pub_chan, routing.ExchangePerilTopic, move_queue, mv)
+			} else {
+				fmt.Printf("%v\n", err)
+			}
+
 		case "status":
 			gameState.CommandStatus()
 		case "help":
