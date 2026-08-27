@@ -2,18 +2,39 @@ package pubsub
 
 import (
 	"encoding/json"
+	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func ProcessMessages[T any](ch <-chan amqp.Delivery, handler func(T)) {
+type AckType int
+
+const (
+	Ack AckType = iota
+	NackRequeue
+	NackDiscard
+)
+
+func ProcessMessages[T any](ch <-chan amqp.Delivery, handler func(T) AckType) {
 	for delivery := range ch {
 		var content T
 		err := json.Unmarshal(delivery.Body, &content)
 		if err == nil {
-			handler(content)
+			a_type := handler(content)
+			switch a_type {
+			case Ack:
+				delivery.Ack(false)
+				log.Printf("Sending Ack response.")
+			case NackRequeue:
+				delivery.Nack(false, true)
+				log.Printf("Sending NackRequeue response.")
+			case NackDiscard:
+				delivery.Nack(false, false)
+				log.Printf("Sending NackDiscard response.")
+			}
+		} else {
+			delivery.Ack(false)
 		}
-		delivery.Ack(false)
 	}
 
 }
@@ -23,7 +44,7 @@ func SubscribeJSON[T any](
 	queueName,
 	key string,
 	durable bool,
-	handler func(T),
+	handler func(T) AckType,
 ) error {
 	ch_amqp, _, err := DeclareAndBind(conn, exchange, queueName, key, durable)
 	if err != nil {
