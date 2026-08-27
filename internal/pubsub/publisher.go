@@ -38,8 +38,11 @@ func DeclareAndBind(
 		return nil, amqp.Queue{}, err
 	}
 
+	exchange_table := amqp.Table{}
+	exchange_table["x-dead-letter-exchange"] = "peril_dlx"
+
 	queueA, err := channelA.QueueDeclare(queueName, durable, !durable, !durable,
-		false, nil)
+		false, exchange_table)
 	if err != nil {
 		return nil, amqp.Queue{}, err
 	}
