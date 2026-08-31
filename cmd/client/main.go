@@ -19,13 +19,21 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Ack
 	}
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+func handlerMove(gs *gamelogic.GameState, ch *amqp.Channel) func(gamelogic.ArmyMove) pubsub.AckType {
 	return func(mv gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Printf("> ")
 		outcome := gs.HandleMove(mv)
 		switch outcome {
-		case gamelogic.MoveOutComeSafe, gamelogic.MoveOutcomeMakeWar:
+		case gamelogic.MoveOutComeSafe:
 			return pubsub.Ack
+		case gamelogic.MoveOutcomeMakeWar:
+			warEvent := gamelogic.RecognitionOfWar{
+				Attacker: mv.Player,
+				Defender: gs.GetPlayerSnap(),
+			}
+			key := fmt.Sprintf("%s.%s", routing.WarRecognitionsPrefix, gs.Player.Username)
+			pubsub.PublishJSON(ch, routing.ExchangePerilTopic, key, warEvent)
+			return pubsub.NackRequeue
 		case gamelogic.MoveOutcomeSamePlayer:
 			return pubsub.NackDiscard
 		default:
@@ -35,6 +43,28 @@ func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckTyp
 	}
 }
 
+func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
+		defer fmt.Printf("> ")
+		outcome, _, _ := gs.HandleWar(rw)
+		switch outcome {
+		case gamelogic.WarOutcomeNotInvolved:
+			return pubsub.NackRequeue
+		case gamelogic.WarOutcomeNoUnits:
+			return pubsub.NackDiscard
+		case gamelogic.WarOutcomeOpponentWon:
+			return pubsub.Ack
+		case gamelogic.WarOutcomeYouWon:
+			return pubsub.Ack
+		case gamelogic.WarOutcomeDraw:
+			return pubsub.Ack
+		default:
+			log.Printf("Error: not a valid war outcome\n")
+			return pubsub.NackDiscard
+		}
+
+	}
+}
 func main() {
 	fmt.Println("Starting Peril client...")
 	connectionString := "amqp://guest:guest@localhost:5672/"
@@ -64,10 +94,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, move_queue, fmt.Sprintf("%s.*", routing.ArmyMovesPrefix), false, handlerMove(gameState))
+	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, move_queue, fmt.Sprintf("%s.*", routing.ArmyMovesPrefix), false, handlerMove(gameState, move_pub_chan))
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	war_key := fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix)
+	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, "war", war_key, true, handlerWar(gameState))
 
 	for closingClient := false; ; {
 		input := gamelogic.GetInput()
@@ -81,7 +114,6 @@ func main() {
 			} else {
 				fmt.Printf("%v\n", err)
 			}
-
 		case "status":
 			gameState.CommandStatus()
 		case "help":
