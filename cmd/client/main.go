@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -43,20 +44,38 @@ func handlerMove(gs *gamelogic.GameState, ch *amqp.Channel) func(gamelogic.ArmyM
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func logWarResult(ch *amqp.Channel, message string, rw gamelogic.RecognitionOfWar, gs *gamelogic.GameState) error {
+	gameLog := routing.GameLog{
+		CurrentTime: time.Now(),
+		Message:     message,
+		Username:    gs.GetUsername(),
+	}
+
+	routing_key := fmt.Sprintf("%s.%s", routing.GameLogSlug, rw.Attacker.Username)
+	pubsub.PublishGob(ch, routing.ExchangePerilTopic, routing_key, gameLog)
+	return nil
+}
+
+func handlerWar(ch *amqp.Channel, gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
 	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
 		defer fmt.Printf("> ")
-		outcome, _, _ := gs.HandleWar(rw)
+		outcome, winner, loser := gs.HandleWar(rw)
 		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
 		case gamelogic.WarOutcomeNoUnits:
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeOpponentWon:
+			result_message := fmt.Sprintf("%s won a war against %s", winner, loser)
+			logWarResult(ch, result_message, rw, gs)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeYouWon:
+			result_message := fmt.Sprintf("%s won a war against %s", winner, loser)
+			logWarResult(ch, result_message, rw, gs)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
+			result_message := fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser)
+			logWarResult(ch, result_message, rw, gs)
 			return pubsub.Ack
 		default:
 			log.Printf("Error: not a valid war outcome\n")
@@ -100,8 +119,12 @@ func main() {
 	}
 
 	war_key := fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix)
-	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, "war", war_key, true, handlerWar(gameState))
+	war_channel, err := ampqClient.Channel()
 
+	err = pubsub.SubscribeJSON(ampqClient, routing.ExchangePerilTopic, "war", war_key, true, handlerWar(war_channel, gameState))
+	if err != nil {
+		log.Fatal(err)
+	}
 	for closingClient := false; ; {
 		input := gamelogic.GetInput()
 		switch input[0] {
