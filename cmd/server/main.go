@@ -20,6 +20,16 @@ func publishTogglePause(channelA *amqp.Channel, pausing bool) {
 		state)
 }
 
+func handlerLogs() func(gl routing.GameLog) pubsub.AckType {
+	return func(gl routing.GameLog) pubsub.AckType {
+		defer fmt.Printf("> ")
+		err := gamelogic.WriteLog(gl)
+		if err != nil {
+			return pubsub.NackDiscard
+		}
+		return pubsub.Ack
+	}
+}
 func main() {
 	fmt.Println("Starting Peril server...")
 	gamelogic.PrintServerHelp()
@@ -37,6 +47,7 @@ func main() {
 		log.Fatal("Unable to open channel.")
 	}
 
+	pubsub.SubscribeGob(ampqClient, "peril_topic", "game_logs", "game_logs.*", true, handlerLogs())
 	_, _, err = pubsub.DeclareAndBind(ampqClient,
 		"peril_topic", "game_logs", "game_logs.*", true)
 	if err != nil {
