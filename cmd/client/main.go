@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -54,6 +55,17 @@ func logWarResult(ch *amqp.Channel, message string, rw gamelogic.RecognitionOfWa
 	routing_key := fmt.Sprintf("%s.%s", routing.GameLogSlug, rw.Attacker.Username)
 	pubsub.PublishGob(ch, routing.ExchangePerilTopic, routing_key, gameLog)
 	return nil
+}
+
+func logSpam(ch *amqp.Channel, message string, gs *gamelogic.GameState) error {
+	gameLog := routing.GameLog{
+		CurrentTime: time.Now(),
+		Message:     message,
+		Username:    gs.GetUsername(),
+	}
+	msg_key := fmt.Sprintf("%s.%s", routing.GameLogSlug, gs.Player.Username)
+	err := pubsub.PublishGob(ch, "peril_topic", msg_key, gameLog)
+	return err //err is either nil or not nil, and he caller will make the determination on how to deal with it.
 }
 
 func handlerWar(ch *amqp.Channel, gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
@@ -142,7 +154,23 @@ func main() {
 		case "help":
 			gamelogic.PrintClientHelp()
 		case "spam":
-			fmt.Printf("Spamming not allowed yet!")
+			if len(input) < 2 {
+				fmt.Printf("Spamming requires a count.\n")
+				continue
+			}
+			n, err := strconv.Atoi(input[1])
+			if err != nil {
+				fmt.Printf("%s is not a valid integer count.\n", input[1])
+				continue
+			}
+			for range n {
+				msg := gamelogic.GetMaliciousLog()
+				err := logSpam(move_pub_chan, msg, gameState)
+				if err != nil {
+					fmt.Printf("Error when spamming.\n")
+					continue
+				}
+			}
 		case "quit":
 			fmt.Printf("Shutting Down...\n")
 			closingClient = true
