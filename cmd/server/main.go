@@ -56,6 +56,9 @@ func main() {
 
 	for closingServer := false; ; {
 		input := gamelogic.GetInput()
+		if len(input) == 0 {
+			continue
+		}
 		switch input[0] {
 		case "pause":
 			fmt.Printf("Pausing...\n")

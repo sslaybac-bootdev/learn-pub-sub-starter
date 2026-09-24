@@ -79,6 +79,7 @@ func SubscribeGob[T any](
 		return err
 	}
 
+	ch_amqp.Qos(10, 0, false)
 	delivery_ch, err := ch_amqp.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
 		return err
